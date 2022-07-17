@@ -471,6 +471,7 @@ class Config:
 	log_levels: List[str] = ["ERROR", "WARNING", "INFO", "DEBUG"]
 	cpu_percent_fields: List = ["total"]
 	cpu_percent_fields.extend(getattr(psutil.cpu_times_percent(), "_fields", []))
+	cpu_percent_fields.extend(["isolated", "non-isolated"])
 	temp_scales: List[str] = ["celsius", "fahrenheit", "kelvin", "rankine"]
 
 	cpu_sensors: List[str] = [ "Auto" ]
@@ -1890,10 +1891,10 @@ class CpuBox(Box, SubBox):
 		mid_line: bool = False
 		temp: int = 0
 		unit: str = ""
-		if not CONFIG.cpu_single_graph and CONFIG.cpu_graph_upper != CONFIG.cpu_graph_lower:
-			mid_line = True
-			if h % 2: hh = floor(h / 2)
-			else: hh2 -= 1
+		# if not CONFIG.cpu_single_graph and CONFIG.cpu_graph_upper != CONFIG.cpu_graph_lower:
+		# 	mid_line = True
+		# 	if h % 2: hh = floor(h / 2)
+		# 	else: hh2 -= 1
 
 		hide_cores: bool = (cpu.cpu_temp_only or not CONFIG.show_coretemp) and cpu.got_sensors
 		ct_width: int = (max(6, 6 * cls.column_size)) * hide_cores
@@ -1989,9 +1990,13 @@ class CpuBox(Box, SubBox):
 			elif cpu.got_sensors and not hide_cores:
 				out += f'{Mv.r(max(6, 6 * cls.column_size))}'
 			out += f'{THEME.div_line(Symbol.v_line)}'
-			cy += 1
+			if cls.box_columns > 1:
+				if n % 2 != 0: cc += 1
+				else: cy += 1; cc -= 1
+				cx = ccw * cc
+			else: cy += 1
 			if cy > ceil(THREADS/cls.box_columns) and n != THREADS:
-				cc += 1; cy = 1; cx = ccw * cc
+				cc += 2; cy = 1; cx = ccw * cc
 				if cc == cls.box_columns: break
 
 		if cy < bh - 1: cy = bh - 1
@@ -2991,9 +2996,17 @@ class CpuCollector(Collector):
 	cpu_temp: List[List[int]] = []
 	cpu_temp_high: int = 0
 	cpu_temp_crit: int = 0
+	cpu_readings: List = []
+	def test():
+		while not Collector.stopping:
+			lines = subprocess.check_output(['cpupower', 'monitor', '-m', 'Mperf']).decode().splitlines()[2:]
+			CpuCollector.cpu_readings = [float(l.split('|')[1].strip().replace(',', '.')) for l in lines]
+	threading.Thread(target=test).start()
 	for _ in range(THREADS + 1):
 		cpu_usage.append([])
 		cpu_temp.append([])
+		cpu_readings.append(0)
+	cpu_readings.pop()
 	freq_error: bool = False
 	cpu_freq: int = 0
 	load_avg: List[float] = []
@@ -3039,7 +3052,8 @@ class CpuCollector(Collector):
 
 	@classmethod
 	def _collect(cls):
-		cls.cpu_usage[0].append(ceil(psutil.cpu_percent(percpu=False)))
+		# cls.cpu_usage[0].append(ceil(psutil.cpu_percent(percpu=False)))
+		cls.cpu_usage[0].append(round(sum(cls.cpu_readings) / len(cls.cpu_readings)))
 		if len(cls.cpu_usage[0]) > Term.width * 4:
 			del cls.cpu_usage[0][0]
 
@@ -3047,13 +3061,23 @@ class CpuCollector(Collector):
 		for x in ["upper", "lower"]:
 			if getattr(CONFIG, "cpu_graph_" + x) == "total":
 				setattr(cls, "cpu_" + x, cls.cpu_usage[0])
+			elif "isolated" in getattr(CONFIG, "cpu_graph_" + x):
+				nCores = os.sched_getaffinity(1)
+				iCores = set(range(len(cls.cpu_readings))) - nCores
+				getters = {
+					"isolated": lambda: sum([cls.cpu_readings[n] for n in iCores]) / len(iCores),
+					"non-isolated": lambda: sum([cls.cpu_readings[n] for n in nCores]) / len(nCores)
+				}
+				errlog.warning("{}: {}".format(getattr(CONFIG, "cpu_graph_" + x), getters[getattr(CONFIG, "cpu_graph_" + x)]()))
+				getattr(cls, "cpu_" + x).append(ceil(getters[getattr(CONFIG, "cpu_graph_" + x)]()))
 			else:
 				getattr(cls, "cpu_" + x).append(ceil(getattr(cpu_times_percent, getattr(CONFIG, "cpu_graph_" + x))))
 			if len(getattr(cls, "cpu_" + x)) > Term.width * 4:
 				del getattr(cls, "cpu_" + x)[0]
 
-		for n, thread in enumerate(psutil.cpu_percent(percpu=True), start=1):
-			cls.cpu_usage[n].append(ceil(thread))
+		# for n, thread in enumerate(psutil.cpu_percent(percpu=True), start=1):
+		for n, thread in enumerate(cls.cpu_readings, start=1):
+			cls.cpu_usage[n].append(round(thread))
 			if len(cls.cpu_usage[n]) > Term.width * 2:
 				del cls.cpu_usage[n][0]
 		try:
