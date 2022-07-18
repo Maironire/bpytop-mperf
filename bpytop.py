@@ -3058,12 +3058,12 @@ class CpuCollector(Collector):
 			del cls.cpu_usage[0][0]
 
 		cpu_times_percent = psutil.cpu_times_percent()
+		nCores = os.sched_getaffinity(1)
+		iCores = set(range(len(cls.cpu_readings))) - nCores
 		for x in ["upper", "lower"]:
 			if getattr(CONFIG, "cpu_graph_" + x) == "total":
 				setattr(cls, "cpu_" + x, cls.cpu_usage[0])
 			elif "isolated" in getattr(CONFIG, "cpu_graph_" + x):
-				nCores = os.sched_getaffinity(1)
-				iCores = set(range(len(cls.cpu_readings))) - nCores
 				getters = {
 					"isolated": lambda: sum([cls.cpu_readings[n] for n in iCores]) / len(iCores),
 					"non-isolated": lambda: sum([cls.cpu_readings[n] for n in nCores]) / len(nCores)
@@ -3082,7 +3082,7 @@ class CpuCollector(Collector):
 				del cls.cpu_usage[n][0]
 		try:
 			if CONFIG.show_cpu_freq and hasattr(psutil.cpu_freq(), "current"):
-				freq: float = psutil.cpu_freq().current
+				freq: float = sum([f.current for i, f in enumerate(psutil.cpu_freq(True)) if i in nCores]) / len(nCores)
 				cls.cpu_freq = round(freq * (1 if freq > 10 else 1000))
 			elif cls.cpu_freq > 0:
 				cls.cpu_freq = 0
