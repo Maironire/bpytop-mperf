@@ -2999,8 +2999,10 @@ class CpuCollector(Collector):
 	cpu_readings: List = []
 	def test():
 		while not Collector.stopping:
-			lines = subprocess.check_output(['cpupower', 'monitor', '-m', 'Mperf']).decode().splitlines()[2:]
-			CpuCollector.cpu_readings = [float(l.split('|')[1].strip().replace(',', '.')) for l in lines]
+			try:
+				lines = subprocess.check_output(['cgexec', '-g', 'cpuset:machine.slice', 'cpupower', 'monitor', '-m', 'Mperf']).decode().splitlines()[2:]
+				CpuCollector.cpu_readings = [float(l.split('|')[1].strip().replace(',', '.')) for l in lines]
+			except: pass
 	threading.Thread(target=test).start()
 	for _ in range(THREADS + 1):
 		cpu_usage.append([])
