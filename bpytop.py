@@ -3000,8 +3000,8 @@ class CpuCollector(Collector):
 	def test():
 		while not Collector.stopping:
 			try:
-				lines = subprocess.check_output(['cgexec', '-g', 'cpuset:machine.slice', 'cpupower', 'monitor', '-m', 'Mperf']).decode().splitlines()[2:]
-				CpuCollector.cpu_readings = [float(l.split('|')[1].strip().replace(',', '.')) for l in lines]
+				lines = subprocess.check_output(['cgexec', '-g', 'cpuset:machine.slice', 'cpupower', 'monitor', '-m', 'Mperf']).decode().splitlines()
+				CpuCollector.cpu_readings = [float(l.split('|')[1].strip().replace(',', '.')) for l in lines if re.match(r'\s*\d+\|', l)]
 			except: pass
 	threading.Thread(target=test).start()
 	for _ in range(THREADS + 1):
